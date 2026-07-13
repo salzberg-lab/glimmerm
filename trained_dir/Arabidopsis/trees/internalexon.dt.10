@@ -1,0 +1,24 @@
+Training set: exon.noimm.train, Dimensions: 4, Categories: 2
+
+
+Root Hyperplane: Left = [550,5489], Right = [6943,2242]
+1.000000 x[1] + -1.696374 = 0
+
+l Hyperplane: Left = [336,5074], Right = [214,415]
+1.000000 x[1] + 0.472186 = 0
+
+lr Hyperplane: Left = [7,247], Right = [207,168]
+1.000000 x[2] + -1.223498 = 0
+
+lrr Hyperplane: Left = [23,45], Right = [184,123]
+1.000000 x[3] + -60.500000 = 0
+
+lrrr Hyperplane: Left = [146,73], Right = [38,50]
+1.000000 x[3] + -147.500000 = 0
+
+r Hyperplane: Left = [163,1803], Right = [6780,439]
+1.000000 x[2] + -0.041042 = 0
+
+rr Hyperplane: Left = [5,30], Right = [6775,409]
+1.000000 x[4] + 5.635277 = 0
+

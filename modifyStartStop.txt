@@ -1,0 +1,129 @@
+Modifications to be done for having different start-stop codons.
+
+I Before Make in training phase:
+
+I.1 For different start codon(s)
+-- in formtrain.pm, subroutine formfatg, modify line:
+   if(substr($s,$i,3) eq "atg")
+   to reflect the start codon you need to use
+   e.g. if three different start codons - ATG, GTG, TTG - need to be used:
+   if(substr($s,$i,3) eq "atg" || substr($s,$i,3) eq "gtg" || substr($s,$i,3) eq "ttg" )
+-- in formtrain.pm, subroutine clean, modify line:
+   if(lc($sir) eq "atg") { print O $_,"\n";} 
+   e.g. for the above example:
+   if(lc($sir) eq "atg" || lc($sir) eq "gtg" || lc($sir) eq "ttg") { print O $_,"\n";} 
+-- in scoreATG.c, function Is_Atg, modify line:
+   if  (S [ATG_SIGNAL_OFFSET] != 0
+	   || S [ATG_SIGNAL_OFFSET + 1] != 3
+           || S [ATG_SIGNAL_OFFSET + 2] != 2)    /* ATG */
+   e.g. for the above example:
+   if  ((S [ATG_SIGNAL_OFFSET] != 0 || S [ATG_SIGNAL_OFFSET + 1] != 3 || S [ATG_SIGNAL_OFFSET + 2] != 2) &&    /* ATG */
+        (S [ATG_SIGNAL_OFFSET] != 2 || S [ATG_SIGNAL_OFFSET + 1] != 3 || S [ATG_SIGNAL_OFFSET + 2] != 2) &&    /* GTG */
+        (S [ATG_SIGNAL_OFFSET] != 3 || S [ATG_SIGNAL_OFFSET + 1] != 3 || S [ATG_SIGNAL_OFFSET + 2] != 2))      /* TTG */
+
+I.2 For different stop codon(s)
+-- in formtrain.pm, subroutine formfstop, modify line:
+   if(($stop eq "taa")||($stop eq "tga")||($stop eq "tag")) {
+   e.g. if only "tga" is a stop codon:
+   if($stop eq "tga") {
+-- in formtrain.pm, subroutine clean, modify line:
+   if((lc($sir) eq "taa")||(lc($sir) eq "tga")||(lc($sir) eq "tag")) { print O $_,"\n";} 
+   e.g. if only "tga" is a stop codon:
+   if(lc($sir) eq "tga") { print O $_,"\n";} 
+-- in scoreSTOP.c, function Is_Stop, modify line:
+   if ((S [STOP_SIGNAL_OFFSET] != 3 || S [STOP_SIGNAL_OFFSET + 1] != 0 || S [STOP_SIGNAL_OFFSET + 2] != 0) &&    /* TAA */
+       (S [STOP_SIGNAL_OFFSET] != 3 || S [STOP_SIGNAL_OFFSET + 1] != 0 || S [STOP_SIGNAL_OFFSET + 2] != 2) &&    /* TAG */
+       (S [STOP_SIGNAL_OFFSET] != 3 || S [STOP_SIGNAL_OFFSET + 1] != 2 || S [STOP_SIGNAL_OFFSET + 2] != 0))      /* TGA */
+   e.g. if only "tga" is a stop codon:
+   if (S [STOP_SIGNAL_OFFSET] != 3 || S [STOP_SIGNAL_OFFSET + 1] != 2 || S [STOP_SIGNAL_OFFSET + 2] != 0)      /* TGA */
+
+II During train:
+-- Ignore message "*** String x has stop codon"
+
+III For gene finding - before make in the sources directory
+
+III.1 For different stop codon(s)
+-- in sites.c modify lines in function Is_ATG like you did for scoreATG.c
+-- in glicmerm.cpp in function main(), modify lines:
+   if(Data[i]=='a' && Data[i+1]=='t' && Data[i+2]=='g') { // Deal w/ start sites
+   and
+   if(Data[i]=='t' && Data[i-1]=='a' && Data[i-2]=='c') { // Deal w/ start sites
+   to reflect your new choice(s)
+-- 
+
+III.2 For different stop codon(s)
+-- in sites.c modify lines in function Is_Stop like you did for scoreSTOP.c
+-- in glicmerm.cpp in function main(), modify lines:
+   if((Data[i-2]=='t' && Data[i-1]=='g' && Data[i]=='a')||
+      (Data[i-2]=='t' && Data[i-1]=='a' && Data[i]=='a')||	
+      (Data[i-2]=='t' && Data[i-1]=='a' && Data[i]=='g')) {
+   and
+   if((Data[i]=='a' && Data[i-1]=='t' && Data[i-2]=='c') ||
+      (Data[i]=='a' && Data[i-1]=='t' && Data[i-2]=='t') ||
+      (Data[i]=='a' && Data[i-1]=='c' && Data[i-2]=='t')) { 
+   e.g. if only "tga" is a stop codon:
+   if(Data[i-2]=='t' && Data[i-1]=='g' && Data[i]=='a') {
+   and
+   if(Data[i]=='a' && Data[i-1]=='c' && Data[i-2]=='t') { 
+-- in glicmerm.cpp modify function If_Stop(char * S)
+   e.g.  if only "tga" is a stop codon:
+   return  (strncmp (S, "tga", 3) == 0);
+-- in glicmerm.cpp modify function StopCod
+   e.g. if only "tga" is a stop codon just delete lines
+   if(Data[i-2]=='t' && Data[i-1]=='a' && Data[i]=='a') return(1);
+   if(Data[i-2]=='t' && Data[i-1]=='a' && Data[i]=='g') return(1);
+   and
+   if(Data[i]=='a' && Data[i-1]=='t' && Data[i-2]=='t') return(1);
+   if(Data[i]=='a' && Data[i-1]=='t' && Data[i-2]=='c') return(1);
+-- in glicmerm.cpp modify function Find_Stop_Codons such that the automaton resulting will change the state to true only after seeing the desired stop codon(s) (this is the tricky part)
+   e.g. if only "tga" is a stop codon:
+
+void  Find_Stop_Codons  (char X [], int T, int Stop [])
+
+//  Set  Stop [0 .. 6]  TRUE  or  FALSE   according to whether
+//  X [1 .. T] has a stop codon in the corresponding reading frame.
+//  Stop [6]  is always set  FALSE .
+
+  {
+   static int  Next [6] [4] =
+     {{ 0,  0,  0,  1},     //  0  a, c, g
+      { 0,  2,  3,  1},     //  1  t
+      { 5,  0,  0,  1},     //  2  tc
+      { 4,  0,  0,  1},     //  3  tg
+      { 0,  0,  0,  1},     //  4  tga forward stop codon
+      { 0,  0,  0,  1},     //  4  tca reverse stop codon
+      };
+   int  i, State;
+
+   for  (i = 0;  i < 7;  i ++)
+     Stop [i] = 0;
+
+   State = 0;
+   for  (i = 1;  i <= T;  i ++)
+     {
+      switch  (tolower (X [i]))
+        {
+         case  'a' :
+           State = Next [State] [0];
+           break;
+         case  'c' :
+           State = Next [State] [1];
+           break;
+         case  'g' :
+           State = Next [State] [2];
+           break;
+         case  't' :
+           State = Next [State] [3];
+           break;
+         default :
+           fprintf (stderr, "Unexpected character %c\n", X [i]);
+           State = 0;
+        }
+      if  (State == 4)
+          Stop [i % 3] = TRUE;
+      else if  (State > 4)
+          Stop [3 + i % 3] = TRUE;
+     }
+
+   return;
+  }   

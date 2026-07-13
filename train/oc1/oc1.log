@@ -1,0 +1,10 @@
+Training data : last.train
+Data is 10-dimensional, having 2 classes.
+No axis-parallel splits considered.
+Parameters for finding oblique splits at each node :
+	Number of restarts = 20
+	Order of coefficient perturbation = Sequential
+	Maximum number of random perturbations tried at each local minimum = 5
+Pruned decision tree written to last.train.dt.
+Unpruned decision tree written to last.train.dt.unpruned.
+

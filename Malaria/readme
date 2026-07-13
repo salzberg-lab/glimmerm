@@ -1,0 +1,15 @@
+Copyright (c) 2003, The Institute for Genomic Research (TIGR), Rockville,
+Maryland, U.S.A.  All rights reserved.
+
+To run GlimmerM you should use the following command:
+
+  glimmerm_<system> <fasta_file_with the DNA_sequence_to_be analyzed> orfs
+or
+  glimmerm_<system> <fasta_file_with the DNA_sequence_to_be analyzed> orfs -d directory_of_the_training_files
+ 
+
+where <system> is linux, alpha or sun.
+
+if the -d option is not specified the system will suppose that the training files are in the current directory.
+
+The training files are all the files (and subdirectories) in the train/ directory.

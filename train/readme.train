@@ -1,0 +1,78 @@
+# Copyright (c) 2003, The Institute for Genomic Research (TIGR), Rockville, Maryland, U.S.A.  All rights reserved.
+
+Train GlimmerM module.
+
+To use this trainning module, first run make in this directory, and than call
+trainGlimmerM with the parameters specified below.
+
+  Usage:
+    trainGlimmerM <mfasta_file> <exon_file> [optional_parameters]
+
+    <mfasta_file> is a multifasta file containing the sequences for training
+                  with the usual format:
+
+                  >seq1
+                  AGTCGTCGCTAGCTAGCTAGCATCGAGTCTTTTCGATCGAGGACTAGACTT
+                  CTAGCTAGCTAGCATAGCATACGAGCATATCGGTCATGAGACTGATTGGGC
+                  >seq2
+                  TTTAGCTAGCTAGCATAGCATACGAGCATATCGGTAGACTGATTGGGTTTA
+                  TGCGTTA
+
+    <exon_file>  is a file with the exon coordinates relative to the sequences
+                 contained in the <mfasta_file>; different genes are separated
+                 by a blank line; I am assuming a format like below:
+
+                 seq1 5 15
+                 seq1 20 34
+
+                 seq1 50 48
+                 seq1 45 36
+
+                 seq2 17 20
+
+                 In this example seq1 has two genes: one on the direct strand 
+                 and another one on the complementary strand
+
+    [optional_parameters]
+
+    -a filter_value   
+                specifies the window length for filtering locally maximal acceptor 
+                sites (default=60)
+    -d filter_value
+                specifies the window length for filtering locally maximal acceptor 
+                sites (default=60)
+
+After running trainGlimmerM, a directory will be created in the directory where
+you ran the traininning procedure from. This directory will be called
+TrainGlimmM[data][time] where [data] and [time] specify the data and the time when
+the directory was created. This directory contains the training parameters needed 
+by GlimmerM to run. A log file named after the name of the diretory will be also 
+created specifying some of the default parameters set for GlimmerM.
+
+A configuration file called config_file is created in the same directory containing
+the following parameters:
+minimum intron length 
+maximum length intron
+minimum exon length
+maximum exon length
+maximum gene length
+a flag indicating if the MDD procedure was used for the acceptor sites #do not change this!!
+a flag indicating if the MDD procedure was used for the donoor sites   #do not change this!!
+the acceptor site threshold
+the donor site threshold
+the length of the filter window for the acceptor sites
+the length of the filter window for the donor sites
+the acceptor site threshold when filtering is used
+the donor site threshold when filtering is used
+a flag indicating if start codon modeling was used 		       #do not change this!!
+the start codon length
+
+The above parameters, unless it was specified otherwise, can be changed by hand.
+To change the splice site and start codon thresolds the false positive/false negative rates 
+can be view in the follwoing files:
+false.nofilter.acc
+false.nofilter.don
+false.filter.acc
+false.filter.don
+false.atg
+

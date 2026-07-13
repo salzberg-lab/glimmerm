@@ -1,0 +1,29 @@
+Copyright (c) 2003, The Institute for Genomic Research (TIGR), Rockville,
+Maryland, U.S.A.  All rights reserved.
+
+This system is licensed as open source under the terms in the file LICENSE.
+
+GlimmerM system is currently trained for Plasmodium falciparum, 
+Arabidopsis thaliana, Aspergillus, rice, and T_parva.
+The system is already compiled for linux, sun, and alpha platforms. 
+You can compile your own system for your unix platform just by typing 
+make in the sources directory.
+
+To run GlimmerM for malaria you should read readme.run from the 
+Malaria directory. You need to use glimmerm from the bin directory of 
+the organims you wish to run it for.
+
+For all other species, just use your own compiled GlimmerM or the 
+already existing pre-compiled GlimmerM from the bin directory.You will 
+also need to specify the directory containing the training files.
+
+For instance, if you want to run GlimmerM for Arabidopsis on a linux
+platform you should type
+GlimmerM/bin/glimmerm_linux fasta.file -d GlimmerM/trained_dir/Arabidopsis/
+
+To train GlimmerM you should first run make in the train directory. 
+Read readme.train from GlimmerM/train. After creating your own training
+directory you can use it at the -d option with GlimmerM.
+
+For additional information about GlimmerM see www.tigr.org/softlab/glimmerm/.
+

@@ -1,0 +1,1083 @@
+#!/usr/local/bin/perl
+
+# no of possible message errors : 175
+
+use strict;
+use Getopt::Std;
+
+use Time::localtime;
+use File::Basename;
+use Cwd;
+
+use FindBin;
+use lib $FindBin::Bin;
+use orf;
+use formtrain;
+use filter;
+use dectree;
+
+my $workdir=cwd();
+my $scriptdir=$FindBin::Bin; # directory where all training programs should be
+
+#print "workdir=$workdir scriptdir=$scriptdir\n";exit;
+
+############
+### HELP ###
+############
+
+my $usage = <<'&EOT&';
+  Train GlimmerM module.
+  Usage:
+    trainGlimmerM <mfasta_file> <exon_file> [optional_parameters]
+
+    <mfasta_file> is a multifasta file containing the sequences for training
+                  with the usual format:
+
+                  >seq1
+                  AGTCGTCGCTAGCTAGCTAGCATCGAGTCTTTTCGATCGAGGACTAGACTT
+                  CTAGCTAGCTAGCATAGCATACGAGCATATCGGTCATGAGACTGATTGGGC
+                  >seq2
+                  TTTAGCTAGCTAGCATAGCATACGAGCATATCGGTAGACTGATTGGGTTTA
+                  TGCGTTA
+
+    <exon_file>  is a file with the exon coordinates relative to the sequences
+                 contained in the <mfasta_file>; different genes are separated
+                 by a blank line; I am assuming a format like below:
+
+                 seq1 5 15
+                 seq1 20 34
+
+                 seq1 50 48
+                 seq1 45 36
+
+                 seq2 17 20
+
+                 In this example seq1 has two genes: one on the direct strand 
+                 and another one on the complementary strand
+
+                 The partial genes can be specified as in the following example:
+    
+                 seq2 <100 >234
+
+                 seq3 <1  100
+                 seq3 102 >105
+
+
+    [optional_parameters]
+
+    -a filter_value   
+                specifies the window length for filtering locally maximal acceptor 
+                sites (default=60)
+    -d filter_value
+                specifies the window length for filtering locally maximal acceptor 
+                sites (default=60)
+&EOT&
+
+die $usage if (@ARGV<2);
+
+
+my $filtacc=60;  # filter value for the acceptor sites window
+my $filtdon=60;  # filter value for the donor sites window
+
+die $usage if((substr($ARGV[0],0,1) eq '-') || (substr($ARGV[1],0,1) eq '-')) ;
+
+my $seqfile=shift;
+my $exfile=shift;
+
+getopts('a:d:') || die $usage;
+
+if($Getopt::Std::opt_a) { $filtacc=$Getopt::Std::opt_a;}
+if($Getopt::Std::opt_d) { $filtdon=$Getopt::Std::opt_d;}
+
+############
+### MAIN ###
+############
+
+# global variables
+my ($thracc,$thrdon,$thracc_filter,$thrdon_filter);
+
+############ read sequences
+############
+
+my %seqs;
+open(F,$seqfile) or die "ERROR 20: Can't open $seqfile\n";
+
+my ($freq_a,$freq_c,$freq_g,$freq_t);
+
+$/=">";
+
+while(<F>) {
+    chomp;
+    if($_) {
+	#my($name,$seq)=/^(\S+)[ \t\S]*\n((\S+\n?)*)$/;exit;
+
+	my($name, $seq);
+	($name)=/^(\S+)\s+/;
+	my $pos=index($_,"\n");
+	$seq=substr($_,$pos+1);
+	
+	die "ERROR 21: Wrong FASTA format: .$_." if (!$name || !$seq);
+    
+	$seq =~ tr/\n//d;
+	$seq =~ tr/\r//d;
+
+	#print "name=$name\n";
+	#print "seq=$seq\n";
+
+	$seqs{$name}=lc($seq);
+
+	# compute freq_a freq_c freq_g freq_t
+	$freq_a += ($seqs{$name} =~ tr/a//);
+	$freq_c += ($seqs{$name} =~ tr/c//);
+	$freq_g += ($seqs{$name} =~ tr/g//);
+	$freq_t += ($seqs{$name} =~ tr/t//);
+
+    }
+}
+
+close(F);
+
+############ read exons
+############
+
+open(F,$exfile) or die "ERROR 22: Can't open $exfile file\n";
+
+# create trainning directory
+my $tm=localtime;
+my $traindir;
+$traindir=sprintf("TrainGlimmM%04d-%02d-%02dD%02d:%02d:%02d",1900+$tm->year,1+$tm->mon,$tm->mday,$tm->hour,$tm->min,$tm->sec);
+mkdir($traindir,07777) or die "ERROR 23: Can't mkdir $traindir: $!";
+
+# create log file
+my $logfile=$traindir.".log";
+open(L,">$logfile");
+
+my $maxin=0;
+my $minin=1000000;
+my $minex=1000000;
+my $maxex=0;
+my $maxgene=0;
+
+$/="\n";
+
+{
+    # create seqs and exons.dat files
+    my $sfile="$traindir/seqs";
+    my $efile="$traindir/exons.dat";
+    my $gfile="$traindir/genelist";
+    open(S,">$sfile") or die printerr("ERROR 24: Can't open $sfile\n");
+    open(E,">$efile") or die printerr("ERROR 25: Can't open $efile\n");
+    open(G,">$gfile") or die printerr("ERROR 26: Can't open $gfile\n");
+
+    my %index=();
+    my $blank=1;
+    my ($list,$lastanum,$beg,$end);
+    my $first=1;
+
+    while(<F>) {
+	chomp;
+	
+	if($_) {
+	    my ($anum,$ex1,$ex2)=/^(\S+)\s*([\>|\<]*\d+)\s*([\>|\<]*\d+\s*)$/;
+
+	    die printerr("ERROR 27: Wrong exon coordinates file. Exon file line: $_\n") if (!$anum || !$ex1 || !$ex2);
+	    
+	    if($blank) { # beginning a new gene
+		
+		if(!$first) {
+		    if($seqs{$lastanum}) {
+			printgene($beg,$end,$lastanum,$list,$index{$lastanum},*S,*E,*G); # print gene if there is a new gene to print
+		    }
+		    else {
+			print "No sequence found for gene $lastanum. Coordinates ignored!\n";
+			print L "No sequence found for gene $lastanum. Coordinates ignored!\n";
+		    }
+		}
+
+		my $genelen=$beg<$end?$end-$beg+1:$beg-$end+1;
+		if($genelen>$maxgene) { $maxgene=$genelen; }
+
+
+		$index{$anum}++;
+
+		$first=0;
+		
+		$list="";
+		$lastanum=$anum;
+		
+		my $digit;
+		
+		if(($digit) = ($ex1 =~ /[\>|\<](\d+)/)) { $beg=$digit;}
+		else { $beg=$ex1;}
+		if(($digit) = ($ex2 =~ /[\>|\<](\d+)/)) { $end=$digit;}
+		else { $end=$ex2;}
+
+		
+
+		my $exlen=$ex1<$ex2?$ex2-$ex1+1:$ex1-$ex2+1;
+		if($exlen<$minex) { $minex=$exlen; }
+		if($exlen>$maxex) { $maxex=$exlen; }
+
+		$list="$ex1 $ex2";
+		$blank=0;
+		
+	    }
+	    else { # next exon
+
+		die printerr("ERROR 28: Incorrect order for exon coordinates: gene $lastanum. Bad line: $_\n" ) 
+		    if(($beg>$end && $beg<$ex1)||($beg<$end && $ex1<$beg)); 
+
+		my $inlen=$ex1<$end?$end-$ex1-1:$ex1-$end-1;		
+		if($inlen<$minin) { $minin=$inlen; }
+		if($inlen>$maxin) { $maxin=$inlen; }
+
+		my $digit;
+		if(($digit) = ($ex2 =~ /[\>|\<](\d+)/)) { $end=$digit;}
+		else { $end=$ex2;}
+
+		my $exlen=$ex1<$ex2?$ex2-$ex1+1:$ex1-$ex2+1;
+		if($exlen<$minex) { $minex=$exlen; }
+		if($exlen>$maxex) { $maxex=$exlen; }
+
+		$list.=" $ex1 $ex2";
+		
+	    }
+	}
+	else { $blank=1; }
+    }
+    
+    if(!$first) {
+	if($seqs{$lastanum}) {
+	    printgene($beg,$end,$lastanum,$list,$index{$lastanum},*S,*E,*G); # print gene if there is a new gene to print
+	}
+	else {
+	    print "No sequence found for gene $lastanum. Coordinates ignored!\n";
+	    print L "No sequence found for gene $lastanum. Coordinates ignored!\n";
+	}
+    }
+   
+    my $genelen=$beg<$end?$end-$beg+1:$beg-$end+1;
+    if($genelen>$maxgene) { $maxgene=$genelen; }
+    
+    close(F);
+    close(G);
+    close(E);
+    close(S);    
+
+}
+
+
+# change working directory to $traindir
+chdir "$traindir" or die printerr("ERROR 29: Can't cd to $traindir: $!\n");
+print L "Training data created successfully! Check exons.dat and seqs for accuracy.\n\n";
+
+my ($istacc,$istdon,@list);
+
+############ train splice sites
+############
+{
+
+    # form the training files for the splice sites of length 80 bp
+    formacc("exons.dat","seqs","train.acc.80");
+    die printerr("ERROR 30: creating acceptor sites. Not enough data or check input files for wrong format.\n") 
+	unless -s "train.acc.80";
+    formfacc("exons.dat","seqs","train.facc.80");
+    die printerr("ERROR 31: creating false acceptor sites. Not enough data or check input files for wrong format.\n") 
+	unless -s "train.facc.80";
+    formdon("exons.dat","seqs","train.don.80");
+    die printerr("ERROR 32: creating donor sites. Not enough data or check input files for wrong format.\n") 
+	unless -s "train.don.80";
+    formfdon("exons.dat","seqs","train.fdon.80");
+    die printerr("ERROR 33: creating false donor sites. Not enough data or check input files for wrong format.\n") 
+	unless -s "train.fdon.80";
+    clean("train.acc.80","acc","train.acc.clean");
+    die printerr("ERROR 34: no acceptors for training.\n") unless -s "train.acc.clean";
+    clean("train.facc.80","acc","train.facc.clean");
+    die printerr("ERROR 35: no false acceptors for training.\n") unless -s "train.facc.clean";
+    clean("train.don.80","don","train.don.clean");
+    die printerr("ERROR 36: no donors for training.\n") unless -s "train.don.clean";
+    clean("train.fdon.80","don","train.fdon.clean");
+    die printerr("ERROR 37: no false donors for training.\n") unless -s "train.fdon.clean";
+    
+    my $status=system("mv train.acc.clean train.acc.80");
+    die printerr("ERROR 38: mv exited funny: $?") unless $status ==0;
+    $status=system("mv train.facc.clean train.facc.80");
+    die printerr("ERROR 40: mv exited funny: $?") unless $status ==0;
+    $status=system("mv train.don.clean train.don.80");
+    die printerr("ERROR 41: mv exited funny: $?") unless $status ==0;
+    $status=system("mv train.fdon.clean train.fdon.80");
+    die printerr("ERROR 42: mv exited funny: $?") unless $status ==0;
+
+    # form the markov files for the splice sites
+    $status=system("$scriptdir/build1 train.acc.80 acc1.mar +44,72"); 
+    die printerr("ERROR 43: $scriptdir/build1 exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/build1 train.facc.80 acc1.mar +44,72 -append"); 
+    die printerr("ERROR 44: $scriptdir/build1 exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/build1 train.don.80 don1.mar +5,20"); 
+    die printerr("ERROR 45: $scriptdir/build1 exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/build1 train.fdon.80 don1.mar +5,20 -append"); 
+    die printerr("ERROR 46: $scriptdir/build1 exited funny: $?") unless $status ==0;
+
+
+    # form the MDD trees
+    $status=system("$scriptdir/karlin train.acc.80 outex 44 72 24");
+    die printerr("ERROR 47: $scriptdir/karlin exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/karlin train.don.80 outin 5 20 5");
+    die printerr("ERROR 48: $scriptdir/karlin exited funny: $?") unless $status ==0;
+
+    @list=();    
+    $istacc=MDD("outex","acc",44);
+    @list=();
+    $istdon=MDD("outin","don",5);
+
+    # cleaning the train.*, outex?*, outin?*, outf* files
+    system("rm train.* outex?* outin?* outf*");
+
+    # form the train files for the splice sites of length 162
+    formacc162("exons.dat","seqs","train.acc");
+    die printerr("ERROR 49: creating acceptor sites. Not enough data or check input files for wrong format.\n") 
+	unless -s "train.acc";
+    formfacc162("exons.dat","seqs","train.facc");
+    die printerr("ERROR 50: creating false acceptor sites. Not enough data or check input files for wrong format.\n") 
+	unless -s "train.facc";
+    formdon162("exons.dat","seqs","train.don");
+    die printerr("ERROR 51: creating donor sites. Not enough data or check input files for wrong format.\n") 
+	unless -s "train.don";
+    formfdon162("exons.dat","seqs","train.fdon");
+    die printerr("ERROR 52: creating false donor sites. Not enough data or check input files for wrong format.\n") 
+	unless -s "train.fdon";
+    clean162("train.acc","acc","train.acc.clean");
+    die printerr("ERROR 53: no acceptors for training.\n") unless -s "train.acc.clean";
+    clean162("train.facc","acc","train.facc.clean");
+    die printerr("ERROR 54: no false acceptors for training.\n") unless -s "train.facc.clean";
+    clean162("train.don","don","train.don.clean");
+    die printerr("ERROR 55: no donors for training.\n") unless -s "train.don.clean";
+    clean162("train.fdon","don","train.fdon.clean");
+    die printerr("ERROR 56: no false donors for training.\n") unless -s "train.fdon.clean";
+
+    
+    $status=system("mv train.acc.clean train.acc"); 
+    die printerr("ERROR 57: mv exited funny: $?") unless $status ==0;
+    $status=system("mv train.facc.clean train.facc"); 
+    die printerr("ERROR 58: mv exited funny: $?") unless $status ==0;
+    $status=system("mv train.don.clean train.don"); 
+    die printerr("ERROR 59: mv exited funny: $?") unless $status ==0;
+    $status=system("mv train.fdon.clean train.fdon"); 
+    die printerr("ERROR 60: mv exited funny: $?") unless $status ==0;
+
+
+    my $nacc=`cat train.acc|wc -l`; chomp($nacc);
+    my $ndon=`cat train.don|wc -l`; chomp($ndon);
+    my $nfacc=`cat train.facc|wc -l`; chomp($nfacc);
+    my $nfdon=`cat train.fdon|wc -l`; chomp($nfdon);
+
+    print L "\nAcceptor sites for training: $nacc\n"; 
+    print L "False acceptor sites for training: $nfacc\n"; 
+    print L "Donor sites for training: $ndon\n"; 
+    print L "False donor sites for training: $nfdon\n"; 
+    if($nacc<100) {
+	print L "Increase the number of acceptor sites for a more accurate training!\n";
+    }
+    if($ndon<100) { 
+	print L "Increase the number of donor sites for a more accurate training!\n";
+    }
+    print L "\n";
+
+
+    # form the training files for coding/noncoding portions
+    formcodncod("train.acc","acc.in","acc.ex");
+    formcodncod("train.facc","facc.in","facc.ex");
+    formcodncod("train.don","don.ex","don.in");
+    formcodncod("train.fdon","fdon.ex","fdon.in");
+
+
+    # form the cod/non-cod scoring files
+    $status=system("$scriptdir/build1 acc.ex score_ex.acc");
+    die printerr("ERROR 61: $scriptdir/build1 exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/build1 facc.ex score_ex.acc -append");
+    die printerr("ERROR 62: $scriptdir/build1 exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/build1 don.ex score_ex.don");
+    die printerr("ERROR 63: $scriptdir/build1 exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/build1 fdon.ex score_ex.don -append");
+    die printerr("ERROR 64: $scriptdir/build1 exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/build1 acc.in score_in.acc");
+    die printerr("ERROR 65: $scriptdir/build1 exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/build1 facc.in score_in.acc -append");
+    die printerr("ERROR 66: $scriptdir/build1 exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/build1 don.in score_in.don");
+    die printerr("ERROR 67: $scriptdir/build1 exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/build1 fdon.in score_in.don -append");
+    die printerr("ERROR 68: $scriptdir/build1 exited funny: $?") unless $status ==0;
+    
+    # cleaning the *.ex, *.in files
+    system("rm *.ex *.in");
+
+
+    # score the results without the filter
+    $status=system("$scriptdir/score train.acc train.facc train.don train.fdon score.acc score.don $istacc $istdon 1 > res.temp");
+    die printerr("ERROR 69: $scriptdir/score exited funny: $?") unless $status ==0;
+    $status=system("$scriptdir/falsecomp score.acc score.don false.nofilter.acc false.nofilter.don $nacc $nfacc $ndon $nfdon");
+    die printerr("ERROR 70: $scriptdir/falsecomp exited funny: $?") unless $status ==0;
+    # clean score.acc score.don
+    system("rm score.acc score.don");
+
+    # compute the $thracc and $thrdon values
+    $thracc=choose_thr("false.nofilter.acc"); 
+    $thrdon=choose_thr("false.nofilter.don");
+
+    print L "Default threshold value for the acceptor sites without filtering: $thracc\n";
+    print L "Default threshold value for the donor sites without filtering: $thrdon\n";
+
+    # apply filtering techniques to the results; 
+    order("res.temp","res.temp.order");
+    system("rm res.temp"); # clean res.temp
+    eliminsites("res.temp.order","res.temp.elim",$filtacc,$filtdon);
+    system("rm res.temp.order"); # clean res.temp.order
+    printres("res.temp.elim");
+    system("rm res.temp.elim"); # clean res.temp.elim
+    sortres("res.acc","s.acc","Scores for true acceptors");
+    sortres("res.facc","s.acc","Scores for false acceptors");
+    sortres("res.don","s.don","Scores for true donors");
+    sortres("res.fdon","s.don","Scores for false donors");
+    system("rm res.*"); # clean res.* files
+    $status=system("$scriptdir/falsecomp s.acc s.don false.filter.acc false.filter.don $nacc $nfacc $ndon $nfdon");
+    die printerr("ERROR 71: $scriptdir/falsecomp exited funny: $?") unless $status ==0;
+    system("rm s.acc s.don"); # clean s.acc s.don
+
+    # compute the $thracc_filter and $thrdon_filter values
+    $thracc_filter=choose_thr("false.filter.acc");
+    $thrdon_filter=choose_thr("false.filter.don");
+
+    print L "\nDefault threshold value for the acceptor sites with filtering: $thracc_filter\n";
+    print L "Default threshold value for the donor sites with filtering: $thrdon_filter\n\n";
+
+    system("rm train.acc train.facc train.don train.fdon");
+}
+
+# global variables 
+my ($isatg,$thratg);
+
+$isatg=1;
+$thratg=-99;
+
+############ train start sites
+############
+{
+    # form the training files for the start sites
+    formatg("exons.dat","seqs","train.atg");
+    $isatg=0 unless -s "train.atg" ;
+    if($isatg) { 
+	formfatg("exons.dat","seqs","train.fatg");
+	$isatg=0 unless -s "train.fatg";
+    }
+
+    my ($natg,$nfatg);
+
+    if($isatg) { 
+
+	# do some cleaning and decide if to use the start site model or not
+	clean("train.atg","atg","train.atg.clean");
+	my $status=system("mv train.atg.clean train.atg");
+	die printerr("ERROR 140: mv exited funny: $?") unless $status ==0;
+	clean("train.fatg","atg","train.fatg.clean");
+	$status=system("mv train.fatg.clean train.fatg");
+	die printerr("ERROR 141: mv exited funny: $?") unless $status ==0;
+
+	$natg=`cat train.atg|wc -l`; chomp($natg);
+	$nfatg=`cat train.fatg|wc -l`; chomp($nfatg);
+
+	print L "\nStart sites for training: $natg\n";
+	print L "False start sites for training: $nfatg\n\n";
+	
+	if($natg<50) {
+	    print L "Too few start sites for an accurate training!\n\n";
+	    $isatg=0;
+	}
+
+    }
+
+    if($isatg) {
+	
+	# form the markov files for the start sites
+	my $status=system("$scriptdir/build1 train.atg atg.markov +0,18 _19");
+	die printerr("ERROR 142: $scriptdir/build1 exited funny: $?") unless $status ==0;
+	$status=system("$scriptdir/build1 train.fatg atg.markov +0,18 -append _19");
+	die printerr("ERROR 143: $scriptdir/build1 exited funny: $?") unless $status ==0;
+
+	# score the results
+	$status=system("$scriptdir/scoreATG train.atg train.fatg score.atg 19 1 >sites.atg");
+	die printerr("ERROR 144: $scriptdir/scoreATG exited funny: $?") unless $status ==0;
+	$status=system("$scriptdir/falsecomp score.atg score.atg false.atg false.temp.atg $natg $nfatg 0 0");
+	die printerr("ERROR 145: $scriptdir/falsecomp exited funny: $?") unless $status ==0;
+	# clean score.atg, train.atg, train.fatg, false.temp.atg
+	system("rm score.atg train.atg train.fatg false.temp.atg");
+	
+	# compute thratg
+	$thratg=choose_min_thr("false.atg");
+
+	print L "Default threshold value for the start sites: $thratg\n\n";
+    }
+}
+
+
+my ($isstop,$thrstop);
+
+$isstop=1;
+$thrstop=-99;
+
+############ train stop sites
+############
+{
+    # form the training files for the stop sites
+    formstop("exons.dat","seqs","train.stop");
+    $isstop=0 unless -s "train.stop" ;
+    if($isstop) { 
+	formfstop("exons.dat","seqs","train.fstop");
+	$isstop=0 unless -s "train.fstop";
+    }
+
+    my ($nstop,$nfstop);
+
+    if($isstop) { 
+
+	# do some cleaning and decide if to use the stop site model or not
+	clean("train.stop","stop","train.stop.clean");
+	my $status=system("mv train.stop.clean train.stop");
+	die printerr("ERROR 157: mv exited funny: $?") unless $status ==0;
+	clean("train.fstop","stop","train.fstop.clean");
+	$status=system("mv train.fstop.clean train.fstop");
+	die printerr("ERROR 158: mv exited funny: $?") unless $status ==0;
+
+	$nstop=`cat train.stop|wc -l`; chomp($nstop);
+	$nfstop=`cat train.fstop|wc -l`; chomp($nfstop);
+
+	print L "\nStop sites for training: $nstop\n";
+	print L "False stop sites for training: $nfstop\n\n";
+	
+	if($nstop<50) {
+	    print L "Too few stop sites for an accurate training!\n\n";
+	    $isstop=0;
+	}
+
+    }
+
+    if($isstop) {
+	
+	# form the markov files for the stop sites
+	my $status=system("$scriptdir/build1 train.stop stop.markov +0,18 _19");
+	die printerr("ERROR 159: $scriptdir/build1 exited funny: $?") unless $status ==0;
+	$status=system("$scriptdir/build1 train.fstop stop.markov +0,18 -append _19");
+	die printerr("ERROR 160: $scriptdir/build1 exited funny: $?") unless $status ==0;
+
+	# score the results
+	$status=system("$scriptdir/scoreSTOP train.stop train.fstop score.stop 19 1 >sites.stop");
+	die printerr("ERROR 161: $scriptdir/scoreSTOP exited funny: $?") unless $status ==0;
+	$status=system("$scriptdir/falsecomp score.stop score.stop false.stop false.temp.stop $nstop $nfstop 0 0");
+	die printerr("ERROR 162: $scriptdir/falsecomp exited funny: $?") unless $status ==0;
+	# clean score.stop, train.stop, train.fstop, false.temp.stop
+	system("rm score.stop train.stop train.fstop false.temp.stop");
+	
+	# compute thrstop
+	$thrstop=choose_min_thr("false.stop");
+
+	print L "Default threshold value for the stop sites: $thrstop\n\n";
+    }
+}
+
+############ create orfs.deltas.context, and icm.model, upstream.model, downstream.model
+############
+{
+    genorf("exons.dat","seqs");
+
+    my $command="$scriptdir/build-imm orfs";  
+    my $status=system($command);
+    die printerr("ERROR 74: $scriptdir/build-imm exited funny: $?") unless $status ==0;
+    
+    print L "\nIMMs trained successfully.\n";
+
+    $command="$scriptdir/build-icm <orfs >icm.model";
+    my $status=system($command);
+    die printerr("ERROR 39: $scriptdir/build-icm exited funny: $?") unless $status ==0;
+    
+    ## form upstream, downstream sequences
+    getupdown("exons.dat","seqs","upstream.train","downstream.train");
+    
+    $command="$scriptdir/build-icm <upstream.train >upstream.model";
+    my $status=system($command);
+    die printerr("ERROR 148: $scriptdir/build-icm exited funny: $?") unless $status ==0;
+
+    $command="$scriptdir/build-icm <downstream.train >downstream.model";
+    my $status=system($command);
+    die printerr("ERROR 149: $scriptdir/build-icm exited funny: $?") unless $status ==0;
+
+    system("rm upstream.train downstream.train"); 
+
+    print L "\nICMs trained successfully.\n";
+}
+
+
+
+
+############ create the decision trees
+############
+{
+    hexfreq("exons.dat","genelist","seqs");
+    my $min_accthr=choose_min_thr("false.nofilter.acc");
+    my $min_donthr=choose_min_thr("false.nofilter.don");
+    my $status=system("$scriptdir/findsites seqs sites.scores $istacc $istdon $min_accthr $min_donthr");
+
+#    my $status=system("cp ../sites.scores .");
+
+    die printerr("ERROR 72: $scriptdir/findsites exited funny: $?") unless $status ==0;
+    feature_extract("genelist","exon.hexfreq","all.hexfreq","exons.dat","seqs","sites.scores",$maxex,$maxin);
+    balance("firstexons.features","first.train");
+    balance("snglexons.features","sngl.train");
+    balance("internalexons.features","exon.train");
+    balance("lastexons.features","last.train");
+    balance("introns.features","intron.train");
+    system("rm *.features"); # clean the large feature files
+    my $status=system("mkdir trees");
+    die printerr("ERROR 73: Could not create decision trees' directory!\n") unless $status ==0;
+    createtree("first.train","exonstarts",$scriptdir);
+    createtree("exon.train","internalexon",$scriptdir);
+    createtree("intron.train","intron",$scriptdir);
+    createtree("last.train","exonlast",$scriptdir);
+    createtree("sngl.train","exonsngl",$scriptdir);
+    printtreenames("treenames","trees/exonstarts");
+    printtreenames("treenames","trees/internalexon");
+    printtreenames("treenames","trees/exonlast");
+    printtreenames("treenames","trees/intron");
+    printtreenames("treenames","trees/exonsngl");
+
+    # try to create upstream/downstream decision trees
+    if($isatg && $isstop) {
+	features_updown("seqs","sites.atg","sites.stop","upstream.model","downstream.model","icm.model",$scriptdir,$freq_a,$freq_c,$freq_g,$freq_t);
+	balance("upstream.features","up.train");
+	balance("downstream.features","down.train");
+	system("rm *.features"); # clean the large feature files
+	createtree("up.train","upstream",$scriptdir);
+	createtree("down.train","downstream",$scriptdir);
+	printtreenames("treenames","trees/upstream");
+	printtreenames("treenames","trees/downstream");
+    }
+
+    system("rm out *.train* *.log"); # clean the decision training files
+
+    print L "\nDecision trees created successfully.\n\n";
+
+}
+
+my $dt_fex=0;
+my $dt_ex=0;
+my $dt_lex=0;
+my $dt_sex=0;
+my $dt_in=0;
+my $lex_min=-99;
+my $fex_min=-99;
+
+############ compute minimum decision tree scores
+{
+    dtorfs("seqs","exons.dat","sites.scores","dtorfs");
+    
+    my $command="$scriptdir/dtscore dtorfs orfs.deltas.context ./ > dt.scores";  
+    my $status=system($command);
+    die printerr("ERROR 150: $scriptdir/dtscore exited funny: $?") unless $status ==0;
+
+    compute_fex_lex_mins("dtorfs");
+    compute_dt_mins("dt.scores");
+}
+
+
+############ print statistics to config file
+############
+
+my $configfile="config_file";
+open(C,">$configfile");
+# print max/min intron/exon/gene length
+print C "$minin\n$maxin\n$minex\n$maxex\n$maxgene\n";
+# print if using outex/outin or not
+print C "$istacc\n$istdon\n";
+# print thresholds found without filtering
+print C "$thracc\n$thrdon\n";
+# print filter lengths and thresholds with filtering 
+print C "$filtacc\n$filtdon\n$thracc_filter\n$thrdon_filter\n";
+# print if using start site and then the threshold of the start site
+print C "$isatg\n$thratg\n";
+# print the minimum values for the decision trees
+print C "$dt_fex\n$dt_ex\n$dt_lex\n$dt_sex\n$dt_in\n";
+# print last and first exon scores
+print C "$lex_min\n$fex_min\n";
+# print if using stop site and then the threshold of the stop site
+print C "$isstop\n$thrstop\n";
+close(C);
+
+
+########### exit program
+###########
+
+# change to initial working directory 
+chdir "$workdir" or die printerr("ERROR 75: Can't cd to $workdir: $!\n");
+
+print printerr("\n\nGlimmerM was trained successfully! All training files are in:\n$traindir.\n");
+print "A log file of the training process can be consulted in:\n$logfile.\n";
+print printerr("\nDifferent thresholds that can be chosen for the splice sites\ncan be consulted in:\n");
+print printerr("- false.filter.acc and false.nofilter.acc for acceptor sites\n  when using or not using filters respectively;\n");
+print printerr("- false.filter.don and false.nofilter.don for donor sites\n  when using or not using filters respectively.\n");
+print printerr("\nDifferent threshold that can be chosen for the start sites\ncan be consulted in false.atg\n") if $isatg;
+close(L);
+
+
+###################
+### SUBROUTINES ###
+###################
+
+
+###########################################################################
+# PRINTGENE                                                               #
+# print a gene sequence in "seqs" and the exon coordinates in "exons.dat" #
+# also creates a file with all the gene names in "genelist"               #
+###########################################################################
+sub printgene { 
+    my ($beg,$end,$lastanum,$list,$index,$fS,$fE,$fG)=@_;
+    my ($digit1,$digit2,$part);
+
+    $part=0;
+    my @a=split(/\s+/,$list);
+    if($beg<$end) { # the forward case
+	my $min=$beg<101?0:$beg-100;
+	for(my $i=0;$i<=$#a;$i+=2) {
+	    if(($digit1) = ($a[$i] =~ /[\>|\<](\d+)/)) {$part=1;}
+	    else { $digit1=$a[$i];}
+	    if(($digit2) = ($a[$i+1] =~ /[\>|\<](\d+)/)) {$part=1;}
+	    else { $digit2=$a[$i+1];}
+	    print $fE "$lastanum\_$index ",$digit1-$min," ",$digit2-$min,"\n";
+	}
+
+	# now print the seq
+	my $s=substr($seqs{$lastanum},$min,$end+100-$min);
+	$s =~ tr/acgt/c/c; # eliminate unknown characters
+	print $fS "$lastanum\_$index $s\n";
+	print $fG "$lastanum\_$index\n" if(!$part);
+    }
+    else { # the reverse  case
+	my $max=$beg<length($seqs{$lastanum})-100?$beg+100:length($seqs{$lastanum});
+	for(my $i=0;$i<=$#a;$i+=2) {
+	    if(($digit1) = ($a[$i] =~ /[\>|\<](\d+)/)) {$part=1;}
+	    else { $digit1=$a[$i];}
+	    if (($digit2) = ($a[$i+1] =~ /[\>|\<](\d+)/)) {$part=1;}
+	    else { $digit2=$a[$i+1];}
+	    print $fE "$lastanum\_$index ",$max-$digit1," ",$max-$digit2,"\n";
+	}
+	
+	my $min=$end<101?0:$end-100;
+
+	my $s=substr($seqs{$lastanum},$min,$max-$min-1);
+	$s=reverse $s;
+	$s =~ tr/acgt/tgca/; # complement sequence
+		    $s =~ tr/acgt/c/c; # eliminate unknown characters
+	print $fS "$lastanum\_$index $s\n";
+	print $fG "$lastanum\_$index\n" if(!$part);
+    }
+
+    print $fE "\n";
+
+}
+
+################################################
+# PRINTERR                                     #
+# print an error message to the log file first #
+################################################
+sub printerr {
+    my $message=$_[0];
+
+    print L $message;
+    
+    return($message);
+}
+
+###################################
+# GENOUT                          #
+# generate the MDD training files #
+###################################
+sub genout {
+    my ($name,$line,$offset)=@_;
+
+    my (@a,$build1,$build2,$comand,$base);
+
+    @a=split(/\s+/,$line);
+
+    if($a[5] eq "l") {
+
+	$comand="";
+	for(my $i=0;$i<=$#list;$i++) {
+	    $comand.=$list[$i]." ";
+	}
+
+	if($name eq "acc") { 
+	    my $name1="outex".$a[1];
+	    my $name2="outfex".$a[1];
+	    $build1="$scriptdir/build1 $name1 $name".$a[1]." +44,72"; 
+	    $build2="$scriptdir/build1 $name2 $name".$a[1]." +44,72 -append"; 
+	    selectfalout("train.facc.80",$name2,$offset,$comand);
+	}
+	elsif ($name eq "don") {
+	    my $name1="outin".$a[1];
+	    my $name2="outfin".$a[1];
+	    $build1="$scriptdir/build1 $name1 $name".$a[1]." +5,20"; 
+	    $build2="$scriptdir/build1 $name2 $name".$a[1]." +5,20 -append"; 
+	    selectfalout("train.fdon.80",$name2, $offset, $comand);
+	}
+
+	my $status=system($build1);
+	die printerr("ERROR 76: $build1 exited funny: $?") unless $status ==0;
+	$status=system($build2);
+	die printerr("ERROR 77: $build2 exited funny: $?") unless $status ==0;
+    }
+    else {
+	
+	if($a[2]==0) { $base="a"; }
+	elsif($a[2]==1) { $base="c"; }
+	elsif($a[2]==2) { $base="g"; }
+	elsif($a[2]==3) { $base="t"; }
+	else { die printerr("ERROR 78: Weird base where a/c/g/t expected in $name line: $line.\n");}
+
+	my $poz=index($line,"l");
+	$poz++;
+	my $line1="(";
+	$poz++;
+	my $par=1;
+
+	while($par) {
+	    my $ch=substr($line,$poz++,1);
+	    if($ch eq "(") {$par++;}
+	    elsif($ch eq ")") {$par--};
+	    $line1.=$ch;
+	}
+
+	my $elem=$base." ".$a[3];
+	push(@list,$elem);
+
+	genout($name,$line1,$offset);
+
+	$elem=pop(@list);
+	$elem="-".$elem;
+	push(@list,$elem);
+
+	my $line2=substr($line,$poz+1);
+	chop($line2);
+
+	genout($name,$line2,$offset);
+	pop(@list);
+    }
+}
+
+
+#################################
+# MDD                           #
+# starting procedure for genout #
+#################################
+sub MDD {
+    my ($f,$file,$poz)=@_;
+
+    open(F,$f);
+    my $line=<F>;
+    close(F);
+    chop($line);
+    if(!($line =~ /^\( 0 -1 -1/)){ 
+	genout($file,$line,$poz);
+	return(1);
+    }
+    else {
+	return(0);
+    }
+}
+
+
+################################################################
+# CHOOSE_THR                                                   #
+# this procedure chooses a threshold for the given splice site #
+# from the false rate input file;  the threshold is choosen    #
+# where the drop in the false positive rate is less than 1%    #
+################################################################
+sub choose_thr {
+    my $filename=$_[0];
+
+    open(F,$filename) || die printerr("ERROR 79: False rate file $filename couldn't be open!\n");
+
+    my $last_thr=-99;
+    my $last_fp=101;
+
+    <F>;
+
+    while(<F>) {
+	my @a=split;
+	shift @a if(!$a[0]);
+	chop($a[7]);
+	return($last_thr) if(($last_fp<$a[7]+1)&&($a[0]!=-99)); 
+	$last_thr=$a[0];
+	$last_fp=$a[7];
+    }
+    
+    close(F);
+    
+    return($last_thr);
+}
+
+
+############################################################
+# CHOOSE_MIN_THR                                           #
+# this procedure finds the minimum threshold for the given #
+# splice site                                              #
+############################################################
+sub choose_min_thr {
+    my $filename=$_[0];
+
+    open(F,$filename) || die printerr("ERROR 80: False rate file $filename couldn't be open!\n");
+
+    my $line=<F>;
+    $line=<F>;
+
+    my @a=split(/\s+/,$line);
+    shift @a if(!$a[0]);
+    close(F);
+
+    return($a[0]);
+}
+
+############################################################
+# COMPUTE_DT_MINS                                          #
+# this procedure computes minimum values for decision      #
+# trees                                                    #
+############################################################
+sub compute_dt_mins {
+    my $filename=$_[0];
+
+    my $f=0;
+    my $l=0;
+    my $e=0;
+    my $i=0;
+    my $s=0;
+
+    open(F,$filename) || die printerr("ERROR 151: File $filename couldn't be open!\n");
+
+    while(<F>) {
+	chomp;
+	my @a=split;
+	if($a[5]) {
+	    if($a[0] eq "F") {
+		if($f) {
+		    if($a[4]<$dt_fex) { $dt_fex=$a[4];}
+		}
+		else {
+		    $f++; $dt_fex=$a[4];
+		}
+	    }
+	    if($a[0] eq "E") {
+		if($e) {
+		    if($a[4]<$dt_ex) { $dt_ex=$a[4];}
+		}
+		else {
+		    $e++; $dt_ex=$a[4];
+		}
+	    }
+	    if($a[0] eq "I") {
+		if($i) {
+		    if($a[4]<$dt_in) { $dt_in=$a[4];}
+		}
+		else {
+		    $i++; $dt_in=$a[4];
+		}
+	    }
+	    if($a[0] eq "L") {
+		if($l) {
+		    if($a[4]<$dt_lex) { $dt_lex=$a[4];}
+		}
+		else {
+		    $l++; $dt_lex=$a[4];
+		}
+	    }
+	    if($a[0] eq "S") {
+		if($s) {
+		    if($a[4]<$dt_sex) { $dt_sex=$a[4];}
+		}
+		else {
+		    $s++; $dt_sex=$a[4];
+		}
+	    }
+	}
+    }
+
+    if($dt_fex>0.001) { $dt_fex-=0.001;}
+    if($dt_ex>0.001) { $dt_ex-=0.001;}
+    if($dt_in>0.001) { $dt_in-=0.001;}
+    if($dt_lex>0.001) { $dt_lex-=0.001;}
+    if($dt_sex>0.001) { $dt_sex-=0.001;}
+}
+
+
+############################################################
+# COMPUTE_FEX_LEX_MINS                                     #
+# this procedure computes minimum values for decision      #
+# trees                                                    #
+############################################################
+sub compute_fex_lex_mins {
+    my $filename=$_[0];
+
+    open(F,$filename) || die printerr("ERROR 152: File $filename couldn't be open!\n");
+
+    while(<F>) {
+	chomp;
+	my @a=split;
+	if($a[0] eq "F") {
+	    if($fex_min==-99) { $fex_min=$a[-1];}
+	    elsif($a[-1]<$fex_min) { $fex_min=$a[-1]; }
+	}
+	if($a[0] eq "L") {
+	    if($lex_min==-99) { $lex_min=$a[-1];}
+	    elsif($a[-1]<$lex_min) { $lex_min=$a[-1]; }
+	}
+    }
+    close(F);
+}
+
+
+############################################################
+# GETUPDOWN                                                #
+# this procedure collects upstream and downstream          #
+# from beginning and end of exons with a maximum of 99 bp  #
+# length                                                   #
+############################################################ 
+sub getupdown {
+    my ($exonfile,$seqfile,$upfile,$downfile)=@_;
+
+    my %first;
+    my %last;
+    open(F,$exonfile) || die printerr("ERROR 153: File $exonfile couldn't be open!\n");
+    while(<F>) {
+	chomp;
+	if($_) {
+	    my ($name,$beg,$end)=split;
+	    if(!$first{$name}) { $first{$name}=$beg;}
+	    $last{$name}=$end;
+	}
+    }
+    close(F);
+
+    open(U,">$upfile") || die printerr("ERROR 154: File $upfile couldn't be open!\n");
+    open(D,">$downfile") || die printerr("ERROR 155: File $downfile couldn't be open!\n");
+
+    open(F,$seqfile) || die printerr("ERROR 156: File $seqfile couldn't be open!\n");
+    while(<F>) {
+	chomp;
+	my ($name,$seq)=split;
+	
+	my $len=length($seq);
+
+	print U $name," ",substr($seq,0,$first{$name}-1),"\n" if(2<=$first{$name} && $first{$name}<=100);
+	print U $name," ",substr($seq,$first{$name}-100,99),"\n" if($first{$name}>100);
+	print D $name," ",substr($seq,$last{$name},99),"\n";
+    }
+    close(F);
+    close(D);
+    close(U);
+}

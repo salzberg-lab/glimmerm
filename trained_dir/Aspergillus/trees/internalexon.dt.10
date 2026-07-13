@@ -1,0 +1,12 @@
+Training set: exon.train, Dimensions: 4, Categories: 2
+
+
+Root Hyperplane: Left = [19,154], Right = [257,69]
+1.000000 x[2] + 0.561365 = 0
+
+r Hyperplane: Left = [22,57], Right = [235,12]
+1.000000 x[1] + 0.216226 = 0
+
+rl Hyperplane: Left = [11,49], Right = [11,8]
+1.000000 x[1] + 2.184059 = 0
+

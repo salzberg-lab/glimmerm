@@ -1,0 +1,30 @@
+Training set: last.noimm.train, Dimensions: 3, Categories: 2
+
+
+Root Hyperplane: Left = [61,1452], Right = [2103,744]
+1.000000 x[1] + -2.703179 = 0
+
+l Hyperplane: Left = [22,1370], Right = [39,82]
+1.000000 x[1] + -0.758950 = 0
+
+lr Hyperplane: Left = [5,68], Right = [34,14]
+1.000000 x[3] + -6.695430 = 0
+
+r Hyperplane: Left = [240,483], Right = [1863,261]
+1.000000 x[3] + -3.359934 = 0
+
+rl Hyperplane: Left = [77,270], Right = [163,213]
+1.000000 x[2] + -31.500000 = 0
+
+rlr Hyperplane: Left = [11,69], Right = [152,144]
+1.000000 x[3] + 2.104131 = 0
+
+rlrr Hyperplane: Left = [71,94], Right = [81,50]
+1.000000 x[1] + -10.141928 = 0
+
+rlrrl Hyperplane: Left = [70,78], Right = [1,16]
+1.000000 x[1] + -9.795633 = 0
+
+rlrrll Hyperplane: Left = [14,31], Right = [56,47]
+1.000000 x[3] + -0.220246 = 0
+

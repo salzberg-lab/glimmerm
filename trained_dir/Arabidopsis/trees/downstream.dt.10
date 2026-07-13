@@ -1,0 +1,21 @@
+Training set: downstream.train, Dimensions: 3, Categories: 2
+
+
+Root Hyperplane: Left = [234,1403], Right = [2524,1387]
+1.000000 x[3] + -0.500000 = 0
+
+r Hyperplane: Left = [1162,1013], Right = [1362,374]
+1.000000 x[1] + -0.653180 = 0
+
+rl Hyperplane: Left = [577,703], Right = [585,310]
+1.000000 x[2] + -0.284962 = 0
+
+rll Hyperplane: Left = [211,359], Right = [366,344]
+1.000000 x[1] + 0.109174 = 0
+
+rllr Hyperplane: Left = [347,307], Right = [19,37]
+1.000000 x[1] + -0.592610 = 0
+
+rlr Hyperplane: Left = [43,58], Right = [542,252]
+1.000000 x[1] + 0.742128 = 0
+

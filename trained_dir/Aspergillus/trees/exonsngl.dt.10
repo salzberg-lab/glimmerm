@@ -1,0 +1,9 @@
+Training set: sngl.train, Dimensions: 2, Categories: 2
+
+
+Root Hyperplane: Left = [6,49], Right = [45,7]
+1.000000 x[1] + -565.500000 = 0
+
+l Hyperplane: Left = [3,48], Right = [3,1]
+1.000000 x[2] + -46.187614 = 0
+

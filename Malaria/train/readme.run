@@ -1,0 +1,63 @@
+Copyright (c) 2003, The Institute for Genomic Research (TIGR), Rockville,
+Maryland, U.S.A.  All rights reserved.
+
+Here is a very rough set of instructions for running glimmer-m.
+
+Note: Please replace below glimmer-m with glimmerm_linux, or 
+glimmerm_sun, or glimmerm_alpha, depending on which platform you 
+are running the system.
+
+You can run it by typing the following command: glimmer-m
+name_of_FASTA_file orfs The keyword "orfs" just means to use the
+training file orfs.delta.context.  That's the huge file included in
+the directory; it was built from the known malaria genes used to train
+glimmer-m.  As we expand this list, the program's performance will
+improve.  However, these instructions are just for running the
+program, not re-training.  We still have to do some more work
+packaging it up to make it possible for others to re-train.
+
+You should redirect the output to some file since the running will take
+some time and the output is to long to be viewed on your terminal. 
+(For chromosome 2, it took about 1.5 hours on a Pentium 266.)
+
+GlimmerM is set to find genes whose total length (concatenating
+all exons) must be greater than some default mininum.
+You can change this minimum accepted gene length to n by using 
+-g n
+as a command line option (the default is 200).
+
+The output gives you first a brief info about the parameters used (minimum
+gene length, minimum allowed percent overlap, etc.) and then prints the
+putative genes found in the given FASTA file.  First there are the gene
+scores in each of the six possible frames (3 on forward dirrection and 3
+on reverse direction), followed by the splice sites scores.
+The following line:
+
+ 1     -  - 99  -  -  0  0           start 0.713437 4.953463 stop
+
+means that gene no 1 has a score of 99 in frame 3 ( a minus in the other
+frames indicates that there is no orf), the donor site scored
+0.713437, while the acceptor scored 4.953463.
+
+Following the gene score is the list of genes.  This is where you
+take your gene list from.  Right now we present several variants of possible
+genes when the variants overlap (usually meaning that several different
+exons look good enough, so we can't be sure which ones to rule out).
+The variants can overlap and a "bad" overlap means that only one
+variant of the genes that overlap badly may be chosen as a real one.
+The line 
+
+ 1      470      548     1034     1068
+
+signifies that gene no 1 has 2 exons: 470-548 and 1034-1068.
+
+
+
+
+
+
+
+
+
+
+

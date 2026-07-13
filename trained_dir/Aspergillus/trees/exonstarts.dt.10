@@ -1,0 +1,21 @@
+Training set: first.train, Dimensions: 3, Categories: 2
+
+
+Root Hyperplane: Left = [14,160], Right = [170,47]
+1.000000 x[1] + -1.077710 = 0
+
+l Hyperplane: Left = [8,158], Right = [6,2]
+1.000000 x[2] + -248.000000 = 0
+
+r Hyperplane: Left = [34,37], Right = [136,10]
+1.000000 x[2] + -77.500000 = 0
+
+rl Hyperplane: Left = [33,28], Right = [1,9]
+1.000000 x[3] + -6.403321 = 0
+
+rll Hyperplane: Left = [6,14], Right = [27,14]
+1.000000 x[2] + -17.000000 = 0
+
+rllr Hyperplane: Left = [0,4], Right = [27,10]
+1.000000 x[3] + 1.628781 = 0
+

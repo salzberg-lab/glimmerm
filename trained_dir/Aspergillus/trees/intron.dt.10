@@ -1,0 +1,36 @@
+Training set: intron.train, Dimensions: 4, Categories: 2
+
+
+Root Hyperplane: Left = [17,277], Right = [400,145]
+1.000000 x[1] + 1.477600 = 0
+
+r Hyperplane: Left = [7,86], Right = [393,59]
+1.000000 x[2] + 1.545736 = 0
+
+rr Hyperplane: Left = [352,22], Right = [41,37]
+1.000000 x[3] + -164.500000 = 0
+
+rrl Hyperplane: Left = [7,7], Right = [345,15]
+1.000000 x[3] + -41.500000 = 0
+
+rrll Hyperplane: Left = [7,4], Right = [0,3]
+1.000000 x[4] + -1.747731 = 0
+
+rrlll Hyperplane: Left = [0,2], Right = [7,2]
+1.000000 x[3] + -18.500000 = 0
+
+rrr Hyperplane: Left = [8,20], Right = [33,17]
+1.000000 x[2] + -6.270604 = 0
+
+rrrr Hyperplane: Left = [33,14], Right = [0,3]
+1.000000 x[4] + -9.329627 = 0
+
+rrrrl Hyperplane: Left = [17,3], Right = [16,11]
+1.000000 x[3] + -245.500000 = 0
+
+rrrrlr Hyperplane: Left = [12,4], Right = [4,7]
+1.000000 x[1] + -9.228033 = 0
+
+rrrrlrr Hyperplane: Left = [2,7], Right = [2,0]
+1.000000 x[1] + -14.333265 = 0
+
