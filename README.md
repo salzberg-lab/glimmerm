@@ -1,3 +1,5 @@
+# GlimmerM<br>Eukaryotic Gene-Finding System
+
 Copyright (c) 2003, The Institute for Genomic Research (TIGR), Rockville,
 Maryland, U.S.A.  All rights reserved.
 
@@ -19,11 +21,12 @@ also need to specify the directory containing the training files.
 
 For instance, if you want to run GlimmerM for Arabidopsis on a linux
 platform you should type
+```bash
 GlimmerM/bin/glimmerm_linux fasta.file -d GlimmerM/trained_dir/Arabidopsis/
+```
 
 To train GlimmerM you should first run make in the train directory. 
 Read readme.train from GlimmerM/train. After creating your own training
 directory you can use it at the -d option with GlimmerM.
 
-For additional information about GlimmerM see www.tigr.org/softlab/glimmerm/.
-
+Additional information is available in the repository's [Wiki](https://github.com/salzberg-lab/glimmerm/wiki).
